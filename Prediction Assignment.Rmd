@@ -1,0 +1,124 @@
+---
+title: "Prediction Assignment Writeup"
+author: "vmalino"
+date: "3 maja 2016"
+output: html_document
+---
+The goal of the project is to predict the manner in which (how well) people do exercises. In the project the data from accelerometers on the belt, forearm, arm, and dumbbell is used. The 6 people participated in the experiment.
+
+The data is provided by Groupware @ LES (http://groupware.les.inf.puc-rio.br/har).
+
+The result of prediction is one of the classes - the manner in which a pariticipant performed the excercise (variable *classe*):
+
+* A: exactly according to the specification
+* B: throwing the elbows to the front
+* C: lifting the dumbbell only halfway
+* D: lowering the dumbbell only halfway
+* E: throwing the hips to the front
+
+The dataset consist of the training part  (https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and test (https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv). Both files are downloaded to the R working directory.
+
+# Explaratory Data Analysis
+The training set size is:
+```{r data_load}
+data <- read.csv("pml-training.csv", na.strings = "NA")
+quiz <- read.csv("pml-testing.csv", na.strings = "NA")
+dim(data)
+```
+
+Some first columns represents observation id, name of the participant, time, and other general information:
+```{r data_columns}
+names(data)[1:20]
+```
+
+There are a lot of NA values in datasets. In verification (quiz) dataset the following amount of columns contains only NA values:
+```{r quiz_NAs}
+qNA <- sapply(quiz, function(x) sum(is.na(x)))
+qNA <- names(qNA[qNA == 20])
+length(qNA)
+```
+
+The main dataset contains the following amount of variables which are mostly NAs (all these variables contain NA for quiz dataset):
+```{r data_NAs}
+dNA <- sapply(data, function(x) sum(is.na(x)))
+dNA <- names(dNA[dNA > 19000])
+length(dNA)
+length(dNA[!(dNA %in% qNA)])
+```
+
+The predicted variable *classe* distribution is the following:
+```{r classe_histo}
+barplot(height = table(data$classe))
+```
+
+One can see that the amount of observations with class A is bigger then other classes.
+
+# Model Building
+The variables which have only NA in quiz dataset are excluded from the model. The same for the general variables like id or timestamp:
+```{r clean_data}
+suppressPackageStartupMessages(library("dplyr"))
+datmod <- data %>% filter(is.na(max_roll_belt)) %>% select(-one_of(qNA)) %>%
+        select(-one_of(c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2",
+                  "cvtd_timestamp", "new_window", "num_window")))
+```
+
+After cleaned dataset is created, it is divided by training and testing subsets:
+```{r data_partition}
+suppressPackageStartupMessages(library("caret"))
+suppressPackageStartupMessages(library("mda"))
+totrain <- createDataPartition(y = datmod$classe, p = 0.75, list = FALSE)
+training <- datmod[totrain,]
+testing <- datmod[-totrain,]
+dim(training)
+dim(testing)
+```
+
+The several prediction models are tested on the traning sample:
+
+* Decision trees
+* Support vector machine
+* Nearest Neigbor
+* Linear discriminant Analysis (LDA)
+* Mixture discriminant analysis (MDA)
+
+The best results Nearest Neigbor model has shown (in terms of Accuracy and Kapp coefficients). Below are the confusion matrix for Nearest Neigbor results and for MDA model to compare with.
+
+Nearest Neigbor model figures:
+```{r best_model}
+modfit <- train(classe ~ ., method = "knn", data = training)
+predictions <- predict(modfit, newdata = testing)
+confusionMatrix(predictions, testing$classe)
+```
+
+MDA model figures:
+```{r alt_model}
+modfit2 <- train(classe ~ ., method = "mda", data = training)
+predictions2 <- predict(modfit2, newdata = testing)
+confusionMatrix(predictions2, testing$classe)
+```
+
+# Cross Validation
+The 10-folded cross validation confirms the results for Nearest Neigbor method:
+```{r cross_validation}
+train_control<- trainControl(method = "cv", number = 10)
+crossmod <- train(classe ~ ., data = training,
+                  trControl = train_control, method="knn")
+cpredictions <- predict(crossmod, testing)
+confusionMatrix(cpredictions, testing$classe)
+```
+
+# Expected out of sample error
+The accuracy and kappa both are around 0.9. It means that one can expect 18 of 20 correct predictions for the quiz data.
+
+# Assumptions and Choices
+
+* It is assumed that all paricipants shows similar results, so, the user columns was removed from the model.
+* To select models for the shortlist some internet sources were used (https://en.wikipedia.org/wiki/Statistical_classification, 
+https://www.researchgate.net/post/What_is_the_best_algorithm_for_classification_task).
+* The best model selected on the basis of Accuracy and Kappy coefficients which are appropriate for model comparison in classification tasks.
+
+# Prediction Results
+The quiz prediction results based on the Nearest Neighbor model:
+```{r quiz_answers}
+predict(modfit, newdata = quiz)
+```
